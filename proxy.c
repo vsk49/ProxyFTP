@@ -7,8 +7,9 @@
 #include  <unistd.h>
 #include  <stdbool.h>
 #include  <netdb.h>
+#include <sys/wait.h>
 #include "./simpleSocketAPI.h"
-#include <sys/select.h>
+
 
 #define SERVADDR "127.0.0.1"        // Définition de l'adresse IP d'écoute
 #define SERVPORT "0"                // Définition du port d'écoute, si 0 port choisi dynamiquement
@@ -17,32 +18,39 @@
 #define MAXHOSTLEN 64               // Taille d'un nom de machine
 #define MAXPORTLEN 64               // Taille d'un numéro de port
 
-int main() {
+
+int main(){
     int ecode;                       // Code retour des fonctions
     char serverAddr[MAXHOSTLEN];     // Adresse du serveur
     char serverPort[MAXPORTLEN];     // Port du server
-    int descSockRDV;                 // Descripteur de socket de rendez-vous
-    int descSockCOM;                 // Descripteur de socket de communication
-    int descSockServer;              // Descripteur de socket pour le serveur FTP
+    int descSockRDV;
+    int descSockConnectServeur;                 // Descripteur de socket de rendez-vous
+    int descSockCOM;
+    int descDonneesClient;
+    int descDonneesServeur;               // Descripteur de socket de communication
     struct addrinfo hints;           // Contrôle la fonction getaddrinfo
     struct addrinfo *res;            // Contient le résultat de la fonction getaddrinfo
     struct sockaddr_storage myinfo;  // Informations sur la connexion de RDV
     struct sockaddr_storage from;    // Informations sur le client connecté
-    socklen_t len;                   // Variable utilisée pour stocker les longueurs des structures de socket
+    socklen_t len;                   // Variable utilisée pour stocker les 
+				                     // longueurs des structures de socket
     char buffer[MAXBUFFERLEN];       // Tampon de communication entre le client et le serveur
-
+    
     // Initialisation de la socket de RDV IPv4/TCP
     descSockRDV = socket(AF_INET, SOCK_STREAM, 0);
     if (descSockRDV == -1) {
          perror("Erreur création socket RDV\n");
          exit(2);
     }
-
     // Publication de la socket au niveau du système
+    // Assignation d'une adresse IP et un numéro de port
+    // Mise à zéro de hints
     memset(&hints, 0, sizeof(hints));
+    // Initialisation de hints
     hints.ai_flags = AI_PASSIVE;      // mode serveur, nous allons utiliser la fonction bind
     hints.ai_socktype = SOCK_STREAM;  // TCP
-    hints.ai_family = AF_INET;        // seules les adresses IPv4 seront présentées par la fonction getaddrinfo
+    hints.ai_family = AF_INET;        // seules les adresses IPv4 seront présentées par 
+				                      // la fonction getaddrinfo
 
     // Récupération des informations du serveur
     ecode = getaddrinfo(SERVADDR, SERVPORT, &hints, &res);
@@ -50,23 +58,24 @@ int main() {
         fprintf(stderr,"getaddrinfo: %s\n", gai_strerror(ecode));
         exit(1);
     }
-
     // Publication de la socket
     ecode = bind(descSockRDV, res->ai_addr, res->ai_addrlen);
     if (ecode == -1) {
         perror("Erreur liaison de la socket de RDV");
         exit(3);
     }
+    // Nous n'avons plus besoin de cette liste chainée addrinfo
     freeaddrinfo(res);
 
     // Récuppération du nom de la machine et du numéro de port pour affichage à l'écran
-    len = sizeof(struct sockaddr_storage);
-    ecode = getsockname(descSockRDV, (struct sockaddr *) &myinfo, &len);
+    len=sizeof(struct sockaddr_storage);
+    ecode=getsockname(descSockRDV, (struct sockaddr *) &myinfo, &len);
     if (ecode == -1) {
         perror("SERVEUR: getsockname");
         exit(4);
     }
-    ecode = getnameinfo((struct sockaddr*)&myinfo, sizeof(myinfo), serverAddr, MAXHOSTLEN, serverPort, MAXPORTLEN, NI_NUMERICHOST | NI_NUMERICSERV);
+    ecode = getnameinfo((struct sockaddr*)&myinfo, sizeof(myinfo), serverAddr,MAXHOSTLEN, 
+                         serverPort, MAXPORTLEN, NI_NUMERICHOST | NI_NUMERICSERV);
     if (ecode != 0) {
         fprintf(stderr, "error in getnameinfo: %s\n", gai_strerror(ecode));
         exit(4);
@@ -82,87 +91,191 @@ int main() {
     }
 
     while (true) {
-        // Attente connexion du client
         len = sizeof(struct sockaddr_storage);
+        // Attente connexion du client
+        // Lorsque demande de connexion, creation d'une socket de communication avec le client
         descSockCOM = accept(descSockRDV, (struct sockaddr *) &from, &len);
         if (descSockCOM == -1){
             perror("Erreur accept\n");
-            continue;
+            exit(6);
         }
 
-        // Lire la commande USER du client
-        ecode = read(descSockCOM, buffer, MAXBUFFERLEN);
-        if (ecode <= 0) {
-            perror("Erreur lecture USER\n");
-            close(descSockCOM);
+        pid_t pid = fork();
+        if (pid == -1) {
+            perror("Erreur fork\n");
             continue;
-        }
-        buffer[ecode] = '\0';
+        } else if (pid == 0) {
+            // Echange de données avec le client connecté
+            close(descSockRDV);
 
-        // Extraire le nom d'utilisateur et l'adresse du serveur à partir de la commande USER
-        char username[MAXHOSTLEN];
-        char hostname[MAXHOSTLEN];
-        if (sscanf(buffer, "USER %[^@]@%[^\n]", username, hostname) != 2) {
-            fprintf(stderr, "Invalid USER command format\n");
-            close(descSockCOM);
-            continue;
-        }
+            /*****
+             * Debut de communication avec 220 BLABLABLA
+             * **/
+            strcpy(buffer, "220 BLABLABLA\n");
+            write(descSockCOM, buffer, strlen(buffer));
 
-        // Se connecter au serveur FTP
-        ecode = connect2Server(hostname, "21", &descSockServer);
-        if (ecode == -1) {
-            perror("Erreur connexion au serveur FTP\n");
-            close(descSockCOM);
-            continue;
-        }
-
-        // Envoyer la commande USER au serveur FTP
-        snprintf(buffer, MAXBUFFERLEN, "USER %s\r\n", username);
-        write(descSockServer, buffer, strlen(buffer));
-
-        // Relayer les commandes et les réponses entre le client et le serveur
-        bool isLoggedIn = false;
-        while (true) {
-            fd_set readfds;
-            FD_ZERO(&readfds);
-            FD_SET(descSockCOM, &readfds);
-            FD_SET(descSockServer, &readfds);
-            int maxfd = (descSockCOM > descSockServer) ? descSockCOM : descSockServer;
-
-            ecode = select(maxfd + 1, &readfds, NULL, NULL, NULL);
-            if (ecode == -1) {
-                perror("Erreur select\n");
-                break;
+            // Lecture des informations de connexion username@hostname
+            memset(buffer, 0, MAXBUFFERLEN);
+            int bytesRead = read(descSockCOM, buffer, MAXBUFFERLEN - 1);
+            if (bytesRead < 0) {
+                perror("Erreur lecture des informations de connexion");
+                close(descSockCOM);
+                close(descSockRDV);
+                exit(7);
             }
+            printf("%s", buffer);
 
-            if (FD_ISSET(descSockCOM, &readfds)) {
-                ecode = read(descSockCOM, buffer, MAXBUFFERLEN);
-                if (ecode <= 0) break;
+            // Séparation du nom d'utilisateur et du nom de l'hôte
+            char username[MAXBUFFERLEN];
+            char hostname[MAXBUFFERLEN];
+            sscanf(buffer, "%[^@]@%[^\n]", username, hostname);
+            printf("Username: %s\n", username);
+            printf("Hostname: %s\n", hostname);
+            // enlever le \r\n
+            hostname[strlen(hostname) - 1] = '\0';
+            printf("Username: '%s'\n", hostname);
 
-                // Sauter l'envoi de la commande USER si l'utilisateur est déjà connecté
-                if (strncmp(buffer, "USER", 4) == 0 && isLoggedIn) {
-                    continue;
+            if (connect2Server(hostname, "21", &descSockConnectServeur) < 0) {
+                perror("Erreur connexion au serveur FTP");
+                close(descSockCOM);
+                close(descSockRDV);
+                exit(8);
+            }
+            read(descSockConnectServeur, buffer, MAXBUFFERLEN - 1);
+            printf("%s", buffer);
+            // envoyer les info de conexion au serveur
+            printf("USER %s\n", username);
+            if (strlen(username) + 2 >= MAXBUFFERLEN) { // Adjusted check to include null terminator
+                fprintf(stderr, "Username too long\n");
+                exit(1);
+            }
+            snprintf(buffer, MAXBUFFERLEN, "%s\r\n", username);
+            printf("'%s'\n", username);
+            write(descSockConnectServeur, buffer, strlen(buffer));
+            printf("ok\n");
+            memset(buffer, 0, MAXBUFFERLEN);
+            read(descSockConnectServeur, buffer, MAXBUFFERLEN - 1);
+            printf("%s", buffer);
+            write(descSockCOM, buffer, strlen(buffer));
+
+            // recuperer le mot de passe
+            memset(buffer, 0, MAXBUFFERLEN);
+            bytesRead = read(descSockCOM, buffer, MAXBUFFERLEN - 1);
+            if (bytesRead < 0) {
+                perror("Erreur lecture du mot de passe");
+                close(descSockCOM);
+                close(descSockRDV);
+                close(descSockConnectServeur);
+                exit(9);
+            }
+            printf("%s", buffer);
+
+            // envoyer le mot de passe au serveur
+            char motDePasse[MAXBUFFERLEN];
+            sscanf(buffer, "%[^\n]", motDePasse);
+            printf("Mot de passe: %s\n", motDePasse);
+            // enlever le \r\n
+            motDePasse[strlen(motDePasse) - 1] = '\0';
+            printf("Mot de passe: %s\n", buffer);
+            write(descSockConnectServeur, buffer, strlen(buffer));
+            memset(buffer, 0, MAXBUFFERLEN);
+            read(descSockConnectServeur, buffer, MAXBUFFERLEN - 1);
+            printf("%s", buffer);
+            write(descSockCOM, buffer, strlen(buffer));
+
+            // connexion reussie, maintenant on fait une boucle pour lire les commandes
+            while (true) {
+                // recuperer la commande
+                memset(buffer, 0, MAXBUFFERLEN);
+                bytesRead = read(descSockCOM, buffer, MAXBUFFERLEN - 1);
+                if (bytesRead < 0) {
+                    perror("Erreur lecture de la commande");
+                    close(descSockCOM);
+                    close(descSockRDV);
+                    close(descSockConnectServeur);
+                    exit(10);
                 }
+                printf("%s", buffer);
 
-                write(descSockServer, buffer, ecode);
+                // verifier si la commande est PORT
+                if (strncmp(buffer, "PORT", 4) == 0) {
+                    // Parse the PASV response to get the IP address and port
+                    int ip1, ip2, ip3, ip4, port1, port2;
+                    sscanf(buffer, "PORT %d,%d,%d,%d,%d,%d", &ip1, &ip2, &ip3, &ip4, &port1, &port2);
+                    char dataIPClient[16];
+                    snprintf(dataIPClient, sizeof(dataIPClient), "%d.%d.%d.%d", ip1, ip2, ip3, ip4);
+                    printf("IP: %s\n", dataIPClient);
+                    char dataPortClient[16];
+                    snprintf(dataPortClient, sizeof(dataPortClient), "%d", port1 * 256 + port2);
+                    printf("Port: %s\n", dataPortClient);
+                    
+                    // Send PASV command to the server
+                    char pasvCommand[] = "PASV\r\n";
+                    write(descSockConnectServeur, pasvCommand, strlen(pasvCommand));
+                    memset(buffer, 0, MAXBUFFERLEN);
+                    read(descSockConnectServeur, buffer, MAXBUFFERLEN - 1);
+                    printf("%s", buffer);
 
-                // Vérifier si l'utilisateur est connecté
-                if (strncmp(buffer, "PASS", 4) == 0) {
-                    isLoggedIn = true;
+                    // Parse the PASV response to get the IP address and port
+                    sscanf(buffer, "227 Entering Passive Mode (%d,%d,%d,%d,%d,%d)", &ip1, &ip2, &ip3, &ip4, &port1, &port2);
+                    char dataIPServeur[16];
+                    snprintf(dataIPServeur, sizeof(dataIPServeur), "%d.%d.%d.%d", ip1, ip2, ip3, ip4);
+                    printf("IP: %s\n", dataIPServeur);
+                    char dataPortServeur[16];
+                    snprintf(dataPortServeur, sizeof(dataPortServeur), "%d", port1 * 256 + port2);
+                    printf("Port: %s\n", dataPortServeur);
+
+                    if (connect2Server(dataIPClient, dataPortClient, &descDonneesClient) < 0) {
+                        perror("Erreur connexion au serveur FTP");
+                        close(descSockCOM);
+                        close(descSockRDV);
+                        exit(8);
+                    }
+                    if (connect2Server(dataIPServeur, dataPortServeur, &descDonneesServeur) < 0) {
+                        perror("Erreur connexion au serveur FTP");
+                        close(descSockCOM);
+                        close(descSockRDV);
+                        exit(8);
+                    }
+
+                    // Send PORT command to the server
+                    write(descSockCOM, "200 'PORT' OK.\r\n", 17);
+                } else if (strncmp(buffer, "LIST", 4) == 0) {
+                    // Send LIST command to the server
+                    write(descSockConnectServeur, buffer, strlen(buffer));
+                    memset(buffer, 0, MAXBUFFERLEN);
+                    read(descSockConnectServeur, buffer, MAXBUFFERLEN - 1);
+                    printf("%s", buffer);
+                    write(descSockCOM, buffer, strlen(buffer));
+
+                    read(descDonneesServeur, buffer, MAXBUFFERLEN - 1);
+                    printf("%s", buffer);
+                    write(descDonneesClient, buffer, strlen(buffer));
+                    close(descDonneesClient);
+                    close(descDonneesServeur);
+
+                    memset(buffer, 0, MAXBUFFERLEN);
+                    read(descSockConnectServeur, buffer, MAXBUFFERLEN - 1);
+                    printf("%s", buffer);
+                    write(descSockCOM, buffer, strlen(buffer));
+                } else {
+                    // gestion des autres commandes
+                    write(descSockConnectServeur, buffer, strlen(buffer));
+                    memset(buffer, 0, MAXBUFFERLEN);
+                    read(descSockConnectServeur, buffer, MAXBUFFERLEN - 1);
+                    printf("%s", buffer);
+                    write(descSockCOM, buffer, strlen(buffer));
                 }
             }
 
-            if (FD_ISSET(descSockServer, &readfds)) {
-                ecode = read(descSockServer, buffer, MAXBUFFERLEN);
-                if (ecode <= 0) break;
-                write(descSockCOM, buffer, ecode);
-            }
+            //Fermeture de la connexion
+            close(descSockCOM);
+            exit(0);
+        } else {
+            close(descSockCOM);
+            // attendre le fils
+            while (waitpid(-1, NULL, WNOHANG) > 0);
         }
-
-        close(descSockCOM);
-        close(descSockServer);
     }
-
-    close(descSockRDV);
-    return 0;
+    
 }
