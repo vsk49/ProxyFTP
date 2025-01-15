@@ -3,14 +3,14 @@ CC = gcc
 CFLAGS = -Wall -Wextra -pthread
 
 # Définir les fichiers sources et les fichiers objets
-SRCS = exemple.c simpleSocketAPI.c
+SRCS = proxy.c simpleSocketAPI.c
 OBJS = $(SRCS:.c=.o)
 
 # Définir la cible par défaut
-all: exemple
+all: proxy
 
 # Règle pour créer l'exécutable proxy
-exemple: $(OBJS)
+proxy: $(OBJS)
 	$(CC) $(CFLAGS) $^ -o $@
 
 # Règle pour compiler les fichiers objets
@@ -19,8 +19,8 @@ exemple: $(OBJS)
 
 # Règle pour nettoyer les fichiers objets et l'exécutable
 clean:
-	rm -f $(OBJS) exemple
+	rm -f $(OBJS) proxy
 
 # Règle pour exécuter le proxy
-run: exemple
-	./exemple
+run: proxy
+	./proxy
