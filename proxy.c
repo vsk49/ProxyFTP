@@ -109,9 +109,9 @@ int main(){
             close(descSockRDV);
 
             /*****
-             * Debut de communication avec 220 BLABLABLA
+             * Debut de communication avec 220 BIENVENUE AU CANAL DE COMMUNICATION FTP
              * **/
-            strcpy(buffer, "220 BLABLABLA\n");
+            strcpy(buffer, "220 BIENVENUE AU CANAL DE COMMUNICATION FTP\n");
             write(descSockCOM, buffer, strlen(buffer));
 
             // Lecture des informations de connexion username@hostname
@@ -199,7 +199,7 @@ int main(){
 
                 // verifier si la commande est PORT
                 if (strncmp(buffer, "PORT", 4) == 0) {
-                    // Parse the PASV response to get the IP address and port
+                    // separaration de la reponse PASV pour recuperer l'adresse IP et le port
                     int ip1, ip2, ip3, ip4, port1, port2;
                     sscanf(buffer, "PORT %d,%d,%d,%d,%d,%d", &ip1, &ip2, &ip3, &ip4, &port1, &port2);
                     char dataIPClient[16];
@@ -209,14 +209,14 @@ int main(){
                     snprintf(dataPortClient, sizeof(dataPortClient), "%d", port1 * 256 + port2);
                     printf("Port: %s\n", dataPortClient);
                     
-                    // Send PASV command to the server
+                    // envoyer la commande PASV au serveur
                     char pasvCommand[] = "PASV\r\n";
                     write(descSockConnectServeur, pasvCommand, strlen(pasvCommand));
                     memset(buffer, 0, MAXBUFFERLEN);
                     read(descSockConnectServeur, buffer, MAXBUFFERLEN - 1);
                     printf("%s", buffer);
 
-                    // Parse the PASV response to get the IP address and port
+                    // separaration de la reponse PASV pour recuperer l'adresse IP et le port
                     sscanf(buffer, "227 Entering Passive Mode (%d,%d,%d,%d,%d,%d)", &ip1, &ip2, &ip3, &ip4, &port1, &port2);
                     char dataIPServeur[16];
                     snprintf(dataIPServeur, sizeof(dataIPServeur), "%d.%d.%d.%d", ip1, ip2, ip3, ip4);
@@ -237,11 +237,10 @@ int main(){
                         close(descSockRDV);
                         exit(8);
                     }
-
-                    // Send PORT command to the server
+                    // envoyer la commande PORT au serveur
                     write(descSockCOM, "200 'PORT' OK.\r\n", 17);
                 } else if (strncmp(buffer, "LIST", 4) == 0) {
-                    // Send LIST command to the server
+                    // envoyer la commande LIST au serveur
                     write(descSockConnectServeur, buffer, strlen(buffer));
                     memset(buffer, 0, MAXBUFFERLEN);
                     read(descSockConnectServeur, buffer, MAXBUFFERLEN - 1);
@@ -268,7 +267,7 @@ int main(){
                 }
             }
 
-            //Fermeture de la connexion
+            // fermeture de la connexion
             close(descSockCOM);
             exit(0);
         } else {
