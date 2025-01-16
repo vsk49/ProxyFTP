@@ -1,3 +1,0 @@
-Établir une session entre le site local et le site distant
-• Effectuer les traitements désirés
-• Terminer la session
