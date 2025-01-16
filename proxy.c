@@ -184,7 +184,7 @@ int main(){
             write(descSockCOM, buffer, strlen(buffer));
 
             // connexion reussie, maintenant on fait une boucle pour lire les commandes
-            while (true) {
+            while (strncmp(buffer, "QUIT", 4) != 0) {
                 // recuperer la commande
                 memset(buffer, 0, MAXBUFFERLEN);
                 bytesRead = read(descSockCOM, buffer, MAXBUFFERLEN - 1);
